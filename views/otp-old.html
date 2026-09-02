@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ratchaburi Hospital Authentication - OTP Validation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --color-blue: #1b74af;
+      --color-navy: #1e508a;
+      --color-dark: #0f1d2a;
+      --ink: #1e293b;
+      --muted: #64748b;
+      --border: #cbd5e1;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      font-family: 'Prompt', sans-serif;
+      background: linear-gradient(135deg, var(--color-blue) 0%, var(--color-navy) 50%, var(--color-dark) 100%);
+      position: relative;
+    }
+
+    .otp-container {
+      background: rgba(255, 255, 255, 0.98);
+      backdrop-filter: blur(12px);
+      border-radius: 20px;
+      box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.6);
+      padding: 40px;
+      width: 100%;
+      max-width: 420px;
+      margin: 0 16px;
+      text-align: center;
+    }
+
+    h2 {
+      font-weight: 600;
+      font-size: 20px;
+      color: var(--ink);
+      margin: 0 0 16px;
+    }
+
+    .info-box {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+      text-align: left;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: var(--ink);
+    }
+    
+    .info-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .info-label {
+      font-weight: 500;
+    }
+
+    .info-value {
+      color: var(--color-navy);
+      font-weight: 600;
+    }
+
+    .status-icon {
+      font-size: 16px;
+    }
+
+    .alert-box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e40af;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 24px;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, var(--color-blue), var(--color-navy));
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 500;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: 'Prompt', sans-serif;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+
+    button:hover { 
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+    }
+    
+    .footer {
+      margin-top: 24px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="otp-container">
+    <h2>สรุปข้อมูลผู้ใช้งาน (ทดสอบ OTP)</h2>
+    
+    <div class="alert-box">
+      ระบบได้ส่งรหัส OTP ไปทางหมอพร้อมแล้ว<br>
+      รหัสอ้างอิง (Ref): <strong>{{ref}}</strong>
+    </div>
+
+    <div class="info-box">
+      <div class="info-row">
+        <span class="info-label">ชื่อผู้ใช้งาน:</span>
+        <span class="info-value">{{fullname}}</span>
+      </div>
+      <hr style="border: 0; border-top: 1px solid var(--border); margin: 12px 0;">
+      <div class="info-row">
+        <span class="info-label">Line ID (RBH Connext):</span>
+        <span class="status-icon">{{lineRbhIcon}}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">หมอพร้อม Application:</span>
+        <span class="status-icon">{{mophAppIcon}}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">หมอพร้อม Line Official:</span>
+        <span class="status-icon">{{mophLineIcon}}</span>
+      </div>
+    </div>
+
+    {{warningMessage}}
+
+    <form method="post" action="/rbhlogin">
+      <input type="hidden" name="action" value="otp-complete">
+      <input type="hidden" name="token" value="{{token}}">
+      <button type="submit">ตกลง (ดำเนินการต่อ)</button>
+    </form>
+
+    <div class="footer">
+      Ratchaburi Hospital Authentication Server
+    </div>
+  </div>
+</body>
+</html>
