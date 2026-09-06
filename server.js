@@ -285,6 +285,7 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
 
       // Log to DB
       await saveOtpTestLog(decoded.user, decoded.fullname, decoded.has_line_rbh, decoded.has_moph_app, decoded.has_moph_line);
+      await saveLoginLog(decoded.user, ipAddress, userAgent, 'SUCCESS', null, subdomain);
       
       // Issue real token
       const realToken = jwt.sign({ user: decoded.user }, JWT_SECRET, { expiresIn: TOKEN_EXP });
@@ -438,7 +439,6 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
         return res.redirect(`/rbhlogin?error=inactive&redirect=${encodeURIComponent(redirect)}`);
       }
 
-      await saveLoginLog(username, ipAddress, userAgent, 'SUCCESS', null, subdomain);
 
       // Generate OTP and Ref
       const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6 digits
