@@ -315,7 +315,7 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
         const msgHtml = `<div>รหัส OTP ของคุณคือ <b>${newOtp}</b><br>Ref: ${newRef}<br></div>`;
         const appPushText = `รหัส OTP ของคุณคือ ${newOtp}`;
         await sendMophAlert(decoded.cid, msgText, msgHtml, appPushText);
-        await saveLoginLog(decoded.user, ipAddress, userAgent, 'OTP_SENT', 'ขอรหัส OTP ซ้ำ (Resend)', subdomain);
+        await saveLoginLog(decoded.user, ipAddress, userAgent, 'OTP_SENT', 'OTP resent', subdomain);
       }
 
       const newTempToken = jwt.sign({
@@ -455,9 +455,9 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
       const noMoph = !cid || !hasMoph;
 
       if (noMoph) {
-        await saveLoginLog(username, ipAddress, userAgent, 'NO_MOPH', 'ไม่มี App หรือ Line หมอพร้อม', subdomain);
+        await saveLoginLog(username, ipAddress, userAgent, 'NO_MOPH', 'No MOPH App/Line', subdomain);
       } else {
-        const mophDetails = `ส่ง OTP สำเร็จ (App: ${has_moph_app ? 'มี' : 'ไม่มี'}, Line: ${has_moph_line ? 'มี' : 'ไม่มี'})`;
+        const mophDetails = `OTP sent (App: ${has_moph_app ? 'Yes' : 'No'}, Line: ${has_moph_line ? 'Yes' : 'No'})`;
         await saveLoginLog(username, ipAddress, userAgent, 'OTP_SENT', mophDetails, subdomain);
         try {
           if (redisClient.isOpen) {
