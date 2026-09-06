@@ -211,6 +211,8 @@ app.get(['/rbhlogin', '/rbhlogin/otp'], (req, res) => {
     errorMessage = '<div class="error">ระงับการใช้งานชั่วคราว! เนื่องจากลองรหัสผ่านผิดเกินกำหนด (กรุณารอ 15 นาที)</div>';
   } else if (errorType === 'inactive') {
     errorMessage = '<div class="error">User นี้ถูกระงับการใช้งาน</div>';
+  } else if (errorType === 'system') {
+    errorMessage = '<div class="error">ระบบขัดข้องชั่วคราว ไม่สามารถติดต่อเซิร์ฟเวอร์ยืนยันตัวตนได้ กรุณาลองใหม่อีกครั้ง</div>';
   }
 
   try {
@@ -373,37 +375,65 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
       });
 
       const client = dgram.createSocket('udp4');
-      
-      const timeoutToken = setTimeout(() => {
-        client.close();
-        reject(new Error('RADIUS Server Timeout'));
-      }, 5000);
+      let isDone = false;
+      let retryTimer = null;
+      let overallTimeout = null;
+
+      const cleanup = () => {
+        isDone = true;
+        if (retryTimer) clearInterval(retryTimer);
+        if (overallTimeout) clearTimeout(overallTimeout);
+        try { client.close(); } catch (e) {}
+      };
+
+      // รอเวลารวมสูงสุด 6 วินาที (หากลองส่งซ้ำแล้วยังไม่ตอบ จึงจะตัด Timeout)
+      overallTimeout = setTimeout(() => {
+        if (!isDone) {
+          cleanup();
+          reject(new Error('RADIUS Server Timeout'));
+        }
+      }, 6000);
 
       client.on('message', (msg) => {
+        if (isDone) return;
         try {
-          clearTimeout(timeoutToken);
           const response = radius.decode({ packet: msg, secret: RADIUS_SECRET });
-          client.close();
+          cleanup();
           resolve(response.code === 'Access-Accept');
         } catch (e) {
-          client.close();
+          cleanup();
           reject(e);
         }
       });
 
       client.on('error', (err) => {
-        clearTimeout(timeoutToken);
-        client.close();
+        if (isDone) return;
+        cleanup();
         reject(err);
       });
 
-      client.send(packet, 0, packet.length, 1812, RADIUS_SERVER, (err) => {
-        if (err) {
-          clearTimeout(timeoutToken);
-          client.close();
-          reject(err);
+      const sendPacket = () => {
+        if (isDone) return;
+        client.send(packet, 0, packet.length, 1812, RADIUS_SERVER, (err) => {
+          if (err && !isDone) {
+            cleanup();
+            reject(err);
+          }
+        });
+      };
+
+      // ส่งครั้งแรกทันที
+      sendPacket();
+
+      // ยิงซ้ำอัตโนมัติทุก 2 วินาที (สูงสุด 2 ครั้ง) กรณี Packet ขากลับตกหล่น
+      let attempts = 1;
+      retryTimer = setInterval(() => {
+        if (isDone) return;
+        if (attempts < 3) {
+          attempts++;
+          sendPacket();
         }
-      });
+      }, 2000);
     });
 
     // 3. จัดการผลลัพธ์หลังจากได้ข้อมูลจาก RADIUS
@@ -496,8 +526,8 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
 
   } catch (error) {
     console.error('Auth Flow Error:', error);
-    await saveLoginLog(username, ipAddress, userAgent, 'FAILED', `System error: ${error.message}`, subdomain);
-    return res.redirect(`/rbhlogin?error=failed&redirect=${encodeURIComponent(redirect)}`);
+    await saveLoginLog(username, ipAddress, userAgent, 'SYSTEM_ERROR', `System error: ${error.message}`, subdomain);
+    return res.redirect(`/rbhlogin?error=system&redirect=${encodeURIComponent(redirect)}`);
   }
 });
 

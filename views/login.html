@@ -207,7 +207,7 @@
         <label for="password">Password</label>
         <input id="password" name="password" type="password" placeholder="••••••••" required />
       </div>
-      <button type="submit">Login</button>
+      <button type="submit" id="submitBtn">Login</button>
     </form>
 
     <div class="footer">
@@ -221,6 +221,16 @@
     if (window.location.pathname && window.location.pathname !== '/rbhlogin') {
       redirectInput.value = window.location.pathname + window.location.search + window.location.hash;
     }
+
+    // Prevent multiple clicks
+    const loginForm = document.getElementById('loginForm');
+    const submitBtn = document.getElementById('submitBtn');
+    loginForm.addEventListener('submit', function() {
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.7';
+      submitBtn.style.cursor = 'not-allowed';
+      submitBtn.innerText = 'กำลังตรวจสอบข้อมูล...';
+    });
   </script>
 </body>
 </html>
