@@ -69,17 +69,6 @@ async function saveLoginLog(username, ip, userAgent, status, errorMessage = null
   }
 }
 
-async function saveOtpTestLog(username, fullname, hasLineRbh, hasMophApp, hasMophLine) {
-  try {
-    const query = `
-      INSERT INTO otp_test_logs (username, fullname, has_line_rbh, has_moph_app, has_moph_line)
-      VALUES (?, ?, ?, ?, ?)
-    `;
-    await pool.execute(query, [username, fullname, hasLineRbh, hasMophApp, hasMophLine]);
-  } catch (err) {
-    console.error('❌ OTP Log Error:', err.message);
-  }
-}
 
 async function sendMophAlert(cid, text, html, appPushText) {
   try {
@@ -284,7 +273,6 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
       }
 
       // Log to DB
-      await saveOtpTestLog(decoded.user, decoded.fullname, decoded.has_line_rbh, decoded.has_moph_app, decoded.has_moph_line);
       await saveLoginLog(decoded.user, ipAddress, userAgent, 'SUCCESS', null, subdomain);
       
       // Issue real token
@@ -327,6 +315,7 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
         const msgHtml = `<div>รหัส OTP ของคุณคือ <b>${newOtp}</b><br>Ref: ${newRef}<br></div>`;
         const appPushText = `รหัส OTP ของคุณคือ ${newOtp}`;
         await sendMophAlert(decoded.cid, msgText, msgHtml, appPushText);
+        await saveLoginLog(decoded.user, ipAddress, userAgent, 'OTP_SENT', 'ขอรหัส OTP ซ้ำ (Resend)', subdomain);
       }
 
       const newTempToken = jwt.sign({
@@ -465,7 +454,11 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
       const hasMoph = has_moph_app || has_moph_line;
       const noMoph = !cid || !hasMoph;
 
-      if (!noMoph) {
+      if (noMoph) {
+        await saveLoginLog(username, ipAddress, userAgent, 'NO_MOPH', 'ไม่มี App หรือ Line หมอพร้อม', subdomain);
+      } else {
+        const mophDetails = `ส่ง OTP สำเร็จ (App: ${has_moph_app ? 'มี' : 'ไม่มี'}, Line: ${has_moph_line ? 'มี' : 'ไม่มี'})`;
+        await saveLoginLog(username, ipAddress, userAgent, 'OTP_SENT', mophDetails, subdomain);
         try {
           if (redisClient.isOpen) {
             await redisClient.setEx(`otp:${username}`, 300, otp); // 5 mins
