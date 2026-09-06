@@ -60,7 +60,7 @@ const TOKEN_EXP = process.env.TOKEN_EXP || '24h';
 async function saveLoginLog(username, ip, userAgent, status, errorMessage = null, subdomain = null) {
   try {
     const query = `
-      INSERT INTO ichart_login_logs (username, ip_address, subdomain, user_agent, status, error_message)
+      INSERT INTO authen_logs (username, ip_address, subdomain, user_agent, status, error_message)
       VALUES (?, ?, ?, ?, ?, ?)
     `;
     await pool.execute(query, [username, ip, subdomain, userAgent, status, errorMessage]);
@@ -358,7 +358,7 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
     // 1. ตรวจสอบสถานะการโดนแบนจากฐานข้อมูล
     const checkQuery = `
       SELECT COUNT(*) AS fail_count 
-      FROM ichart_login_logs 
+      FROM authen_logs 
       WHERE ip_address = ? 
         AND status = 'FAILED' 
         AND created_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)
