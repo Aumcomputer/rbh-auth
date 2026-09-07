@@ -90,7 +90,7 @@ async function sendMophAlert(cid, text, html, appPushText) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(5000)
     });
 
     const responseText = await response.text();
@@ -112,13 +112,13 @@ async function sendMophAlert(cid, text, html, appPushText) {
 
 async function sendLineRBHC(lineid, text) {
   try {
-    const token = (process.env.RBHC_LINE_TOKEN || '').trim();
+    const token = (process.env.RBHC_LINE_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
     if (!lineid || !token) {
-      console.warn('⚠️ sendLineRBHC: lineid or RBHC_LINE_TOKEN is missing');
+      console.warn(`⚠️ sendLineRBHC: ${!lineid ? 'lineid is empty' : 'RBHC_LINE_TOKEN is missing'}`);
       return { success: false, error: 'No lineid or LINE token' };
     }
 
-    const apiUrl = (process.env.LINE_API_URL || 'https://api.line.me/v2/bot/message/push').trim();
+    const apiUrl = (process.env.LINE_API_URL || 'https://api.line.me/v2/bot/message/push').trim().replace(/^['"]|['"]$/g, '');
     const bodyData = {
       to: String(lineid).trim(),
       messages: [
@@ -154,7 +154,7 @@ async function sendLineRBHC(lineid, text) {
 }
 
 function checkLineBackupEnabled() {
-  const flag = (process.env.ENABLE_LINE_BACKUP || process.env.LINE_BACKUP_ENABLED || process.env.LINE_BACKUP || '').trim().toLowerCase();
+  const flag = (process.env.ENABLE_LINE_BACKUP || process.env.LINE_BACKUP_ENABLED || process.env.LINE_BACKUP || '').trim().toLowerCase().replace(/^['"]|['"]$/g, '');
   if (flag === 'false' || flag === '0' || flag === 'off' || flag === 'no') {
     return false;
   }
@@ -162,7 +162,8 @@ function checkLineBackupEnabled() {
     return true;
   }
   // Default: if RBHC_LINE_TOKEN exists, enable backup automatically unless explicitly disabled
-  return Boolean((process.env.RBHC_LINE_TOKEN || '').trim());
+  const token = (process.env.RBHC_LINE_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
+  return Boolean(token);
 }
 
 // ====================
@@ -668,4 +669,8 @@ app.get('/verify', (req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Auth server listening on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Auth server listening on port ${PORT}`);
+  console.log(`📱 LINE Backup Enabled: ${checkLineBackupEnabled() ? 'YES' : 'NO'}`);
+  console.log(`🔑 RBHC Token Present: ${Boolean((process.env.RBHC_LINE_TOKEN || '').trim()) ? 'YES' : 'NO'}`);
+});
