@@ -257,6 +257,7 @@ app.get(['/rbhlogin', '/rbhlogin/otp'], (req, res) => {
     if (!token) return res.redirect('/rbhlogin');
 
     try {
+      const decoded = jwt.verify(token, JWT_SECRET);
       let successMsg = '';
       if (req.query.resend === 'success') {
         successMsg = decoded.sent_via_line_backup
@@ -265,6 +266,7 @@ app.get(['/rbhlogin', '/rbhlogin/otp'], (req, res) => {
       }
       return renderOtpPage(res, token, decoded, '', successMsg);
     } catch (err) {
+      console.error('Error in OTP page GET:', err.message);
       return res.redirect('/rbhlogin?error=failed');
     }
   }
