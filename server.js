@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env'), override: true });
 const express = require('express');
 const bodyParser = require('body-parser');
 const jwt = require('jsonwebtoken');
@@ -7,7 +8,6 @@ const radius = require('radius');
 const dgram = require('dgram');
 const mysql = require('mysql2/promise');
 const fs = require('fs');
-const path = require('path');
 const redis = require('redis');
 
 const app = express();
@@ -153,6 +153,18 @@ async function sendLineRBHC(lineid, text) {
   }
 }
 
+function checkLineBackupEnabled() {
+  const flag = (process.env.ENABLE_LINE_BACKUP || process.env.LINE_BACKUP_ENABLED || process.env.LINE_BACKUP || '').trim().toLowerCase();
+  if (flag === 'false' || flag === '0' || flag === 'off' || flag === 'no') {
+    return false;
+  }
+  if (flag === 'true' || flag === '1' || flag === 'on' || flag === 'yes') {
+    return true;
+  }
+  // Default: if RBHC_LINE_TOKEN exists, enable backup automatically unless explicitly disabled
+  return Boolean((process.env.RBHC_LINE_TOKEN || '').trim());
+}
+
 // ====================
 // Login Page (Modern Blue & Deep Navy - Perfectly Centered Grid)
 // ====================
@@ -161,7 +173,7 @@ function renderOtpPage(res, token, decoded, errorMessage = '', successMessage = 
     const templatePath = path.join(__dirname, 'views', 'otp.html');
     let html = fs.readFileSync(templatePath, 'utf8');
 
-    const isLineBackupEnabled = process.env.ENABLE_LINE_BACKUP === 'true' || process.env.LINE_BACKUP_ENABLED === 'true';
+    const isLineBackupEnabled = checkLineBackupEnabled();
 
     if (decoded.noMoph) {
       const blockedMsg = isLineBackupEnabled
@@ -368,7 +380,7 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
         console.error('Redis setEx error:', redisErr.message);
       }
 
-      const isLineBackupEnabled = process.env.ENABLE_LINE_BACKUP === 'true' || process.env.LINE_BACKUP_ENABLED === 'true';
+      const isLineBackupEnabled = checkLineBackupEnabled();
       let sent_via_line_backup = decoded.sent_via_line_backup || false;
 
       const msgText = `รหัส OTP ของคุณคือ ${newOtp}\n(Ref: ${newRef})\nRatchaburi Hospital`;
@@ -560,17 +572,23 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
 
       // ตรวจสอบว่ามีอย่างใดอย่างหนึ่ง (App หมอพร้อม หรือ Line หมอพร้อม)
       const hasMoph = has_moph_app || has_moph_line;
-      const isLineBackupEnabled = process.env.ENABLE_LINE_BACKUP === 'true' || process.env.LINE_BACKUP_ENABLED === 'true';
+      const isLineBackupEnabled = checkLineBackupEnabled();
       let sent_via_line_backup = false;
 
+      console.log(`[AUTH-FLOW] User: ${username}, CID: ${cid || 'none'}, LineID: ${lineid || 'none'}, MOPH hasMoph: ${hasMoph}, isLineBackupEnabled: ${isLineBackupEnabled}`);
+
       // ระบบสำรอง (Backup): ถ้าส่ง MOPH ไม่ได้ (ระบบล่ม หรือไม่มี MOPH) และเปิดใช้งาน LINE Backup
-      if (!hasMoph && isLineBackupEnabled && lineid) {
-        console.log(`⚠️ MOPH failed or not registered for ${username}. Falling back to LINE Backup (LineID: ${lineid})...`);
-        const lineRes = await sendLineRBHC(lineid, msgText);
-        if (lineRes.success) {
-          sent_via_line_backup = true;
+      if (!hasMoph && isLineBackupEnabled) {
+        if (lineid) {
+          console.log(`⚠️ MOPH failed or not registered for ${username}. Falling back to LINE Backup (LineID: ${lineid})...`);
+          const lineRes = await sendLineRBHC(lineid, msgText);
+          if (lineRes.success) {
+            sent_via_line_backup = true;
+          } else {
+            console.error(`❌ LINE Backup push failed for ${username}:`, lineRes.error);
+          }
         } else {
-          console.error(`❌ LINE Backup push failed for ${username}:`, lineRes.error);
+          console.warn(`⚠️ User ${username} does not have lineid registered in users table. Cannot send LINE backup.`);
         }
       }
 
