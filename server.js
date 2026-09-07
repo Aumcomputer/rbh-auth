@@ -110,6 +110,49 @@ async function sendMophAlert(cid, text, html, appPushText) {
   }
 }
 
+async function sendLineRBHC(lineid, text) {
+  try {
+    const token = (process.env.RBHC_LINE_TOKEN || '').trim();
+    if (!lineid || !token) {
+      console.warn('⚠️ sendLineRBHC: lineid or RBHC_LINE_TOKEN is missing');
+      return { success: false, error: 'No lineid or LINE token' };
+    }
+
+    const apiUrl = (process.env.LINE_API_URL || 'https://api.line.me/v2/bot/message/push').trim();
+    const bodyData = {
+      to: String(lineid).trim(),
+      messages: [
+        {
+          type: 'text',
+          text: text
+        }
+      ]
+    };
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(bodyData),
+      signal: AbortSignal.timeout(8000)
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) {
+      console.log(`📬 LINE Push success [LineID: ${lineid}]:`, data);
+      return { success: true, data };
+    } else {
+      console.error(`❌ LINE Push failed [LineID: ${lineid}, HTTP ${response.status}]:`, data);
+      return { success: false, error: data };
+    }
+  } catch (err) {
+    console.error(`❌ LINE Push error [LineID: ${lineid}]:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 // ====================
 // Login Page (Modern Blue & Deep Navy - Perfectly Centered Grid)
 // ====================
@@ -118,12 +161,17 @@ function renderOtpPage(res, token, decoded, errorMessage = '', successMessage = 
     const templatePath = path.join(__dirname, 'views', 'otp.html');
     let html = fs.readFileSync(templatePath, 'utf8');
 
+    const isLineBackupEnabled = process.env.ENABLE_LINE_BACKUP === 'true' || process.env.LINE_BACKUP_ENABLED === 'true';
+
     if (decoded.noMoph) {
+      const blockedMsg = isLineBackupEnabled
+        ? 'ไม่สามารถส่ง OTP ได้ เนื่องจากไม่พบการลงทะเบียนหมอพร้อม หรือ LINE RBH Connext'
+        : 'ไม่สามารถส่ง OTP ไปยัง Line หมอพร้อมได้ กรุณา Add line หมอพร้อมและ Login ให้เรียบร้อย';
       const blockedHtml = `
         <h2>ไม่สามารถเข้าสู่ระบบได้</h2>
         <div class="user-info">ชื่อผู้ใช้งาน: <strong>${decoded.fullname || decoded.user}</strong></div>
         <div class="error-box">
-          ไม่สามารถส่ง OTP ไปยัง Line หมอพร้อมได้ กรุณา Add line หมอพร้อมและ Login ให้เรียบร้อย
+          ${blockedMsg}
         </div>
         <a href="/rbhlogin" class="btn-back">กลับไปหน้าเข้าสู่ระบบ</a>
       `;
@@ -135,9 +183,13 @@ function renderOtpPage(res, token, decoded, errorMessage = '', successMessage = 
       let errorHtml = errorMessage ? `<div class="error-box">${errorMessage}</div>` : '';
       let successHtml = successMessage ? `<div class="success-box">${successMessage}</div>` : '';
 
+      const channelNotice = decoded.sent_via_line_backup
+        ? 'ระบบได้ส่งรหัส OTP ไปยัง LINE RBH Connext ของท่านแล้ว (ระบบสำรอง)'
+        : 'ระบบได้ส่งรหัส OTP ไปยังหมอพร้อมของท่านแล้ว';
+
       const formHtml = `
         <h2>ยืนยันรหัส OTP</h2>
-        <div class="subtitle">ระบบได้ส่งรหัส OTP ไปยังหมอพร้อมของท่านแล้ว</div>
+        <div class="subtitle">${channelNotice}</div>
         
         <div class="ref-badge">
           รหัสอ้างอิง (Ref): <strong>${decoded.ref}</strong>
@@ -192,8 +244,12 @@ app.get(['/rbhlogin', '/rbhlogin/otp'], (req, res) => {
     if (!token) return res.redirect('/rbhlogin');
 
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      const successMsg = req.query.resend === 'success' ? 'ส่งรหัส OTP ใหม่ไปยังหมอพร้อมแล้ว' : '';
+      let successMsg = '';
+      if (req.query.resend === 'success') {
+        successMsg = decoded.sent_via_line_backup
+          ? 'ส่งรหัส OTP ใหม่ไปยัง LINE RBH Connext แล้ว (ระบบสำรอง)'
+          : 'ส่งรหัส OTP ใหม่ไปยังหมอพร้อมแล้ว';
+      }
       return renderOtpPage(res, token, decoded, '', successMsg);
     } catch (err) {
       return res.redirect('/rbhlogin?error=failed');
@@ -312,20 +368,41 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
         console.error('Redis setEx error:', redisErr.message);
       }
 
-      if (decoded.cid) {
-        const msgText = `รหัส OTP ของคุณคือ ${newOtp}\n(Ref: ${newRef})\nRatchaburi Hospital`;
-        const msgHtml = `<div>รหัส OTP ของคุณคือ <b>${newOtp}</b><br>Ref: ${newRef}<br></div>`;
-        const appPushText = `รหัส OTP ของคุณคือ ${newOtp}`;
-        await sendMophAlert(decoded.cid, msgText, msgHtml, appPushText);
+      const isLineBackupEnabled = process.env.ENABLE_LINE_BACKUP === 'true' || process.env.LINE_BACKUP_ENABLED === 'true';
+      let sent_via_line_backup = decoded.sent_via_line_backup || false;
+
+      const msgText = `รหัส OTP ของคุณคือ ${newOtp}\n(Ref: ${newRef})\nRatchaburi Hospital`;
+      const msgHtml = `<div>รหัส OTP ของคุณคือ <b>${newOtp}</b><br>Ref: ${newRef}<br></div>`;
+      const appPushText = `รหัส OTP ของคุณคือ ${newOtp}`;
+
+      let mophSuccess = false;
+      if (decoded.cid && !sent_via_line_backup) {
+        const alertRes = await sendMophAlert(decoded.cid, msgText, msgHtml, appPushText);
+        if (alertRes.success && alertRes.data) {
+          const appMsg = (alertRes.data.app_message || '').toLowerCase();
+          const lineMsg = (alertRes.data.line_message || '').toLowerCase();
+          mophSuccess = appMsg.includes('success') || lineMsg.includes('success');
+        }
+      }
+
+      if (!mophSuccess && isLineBackupEnabled && decoded.lineid) {
+        const lineRes = await sendLineRBHC(decoded.lineid, msgText);
+        if (lineRes.success) {
+          sent_via_line_backup = true;
+          await saveLoginLog(decoded.user, ipAddress, userAgent, 'OTP_SENT', 'OTP resent via LINE (Backup)', subdomain);
+        }
+      } else if (mophSuccess) {
         await saveLoginLog(decoded.user, ipAddress, userAgent, 'OTP_SENT', 'OTP resent', subdomain);
       }
 
       const newTempToken = jwt.sign({
         user: decoded.user,
         fullname: decoded.fullname,
+        lineid: decoded.lineid,
         has_line_rbh: decoded.has_line_rbh,
         has_moph_app: decoded.has_moph_app,
         has_moph_line: decoded.has_moph_line,
+        sent_via_line_backup: sent_via_line_backup,
         cid: decoded.cid,
         noMoph: false,
         ref: newRef,
@@ -467,12 +544,13 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
       let has_moph_line = false;
       const has_line_rbh = !!lineid;
 
+      const msgText = `รหัส OTP ของคุณคือ ${otp}\n(Ref: ${ref})\nRatchaburi Hospital`;
+      const msgHtml = `<div>รหัส OTP ของคุณคือ <b>${otp}</b><br>Ref: ${ref}<br></div>`;
+      const appPushText = `รหัส OTP ของคุณคือ ${otp} (Ref: ${ref})`;
+
       if (cid) {
-        const msgText = `รหัส OTP ของคุณคือ ${otp}\n(Ref: ${ref})\nRatchaburi Hospital`;
-        const msgHtml = `<div>รหัส OTP ของคุณคือ <b>${otp}</b><br>Ref: ${ref}<br></div>`;
-        const appPushText = `รหัส OTP ของคุณคือ ${otp} (Ref: ${ref})`;
         const alertRes = await sendMophAlert(cid, msgText, msgHtml, appPushText);
-        if (alertRes.data) {
+        if (alertRes.success && alertRes.data) {
           const appMsg = (alertRes.data.app_message || '').toLowerCase();
           const lineMsg = (alertRes.data.line_message || '').toLowerCase();
           has_moph_app = appMsg.includes('success');
@@ -482,13 +560,34 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
 
       // ตรวจสอบว่ามีอย่างใดอย่างหนึ่ง (App หมอพร้อม หรือ Line หมอพร้อม)
       const hasMoph = has_moph_app || has_moph_line;
-      const noMoph = !cid || !hasMoph;
+      const isLineBackupEnabled = process.env.ENABLE_LINE_BACKUP === 'true' || process.env.LINE_BACKUP_ENABLED === 'true';
+      let sent_via_line_backup = false;
+
+      // ระบบสำรอง (Backup): ถ้าส่ง MOPH ไม่ได้ (ระบบล่ม หรือไม่มี MOPH) และเปิดใช้งาน LINE Backup
+      if (!hasMoph && isLineBackupEnabled && lineid) {
+        console.log(`⚠️ MOPH failed or not registered for ${username}. Falling back to LINE Backup (LineID: ${lineid})...`);
+        const lineRes = await sendLineRBHC(lineid, msgText);
+        if (lineRes.success) {
+          sent_via_line_backup = true;
+        } else {
+          console.error(`❌ LINE Backup push failed for ${username}:`, lineRes.error);
+        }
+      }
+
+      const canProceed = hasMoph || sent_via_line_backup;
+      const noMoph = !canProceed;
 
       if (noMoph) {
-        await saveLoginLog(username, ipAddress, userAgent, 'NO_MOPH', 'No MOPH App/Line', subdomain);
+        const noMophMsg = isLineBackupEnabled ? 'No MOPH App/Line & LINE Backup unavailable' : 'No MOPH App/Line';
+        await saveLoginLog(username, ipAddress, userAgent, 'NO_MOPH', noMophMsg, subdomain);
       } else {
-        const mophDetails = `OTP sent (App: ${has_moph_app ? 'Yes' : 'No'}, Line: ${has_moph_line ? 'Yes' : 'No'})`;
-        await saveLoginLog(username, ipAddress, userAgent, 'OTP_SENT', mophDetails, subdomain);
+        if (sent_via_line_backup) {
+          await saveLoginLog(username, ipAddress, userAgent, 'OTP_SENT', 'OTP sent via LINE (Backup)', subdomain);
+        } else {
+          const mophDetails = `OTP sent (App: ${has_moph_app ? 'Yes' : 'No'}, Line: ${has_moph_line ? 'Yes' : 'No'})`;
+          await saveLoginLog(username, ipAddress, userAgent, 'OTP_SENT', mophDetails, subdomain);
+        }
+
         try {
           if (redisClient.isOpen) {
             await redisClient.setEx(`otp:${username}`, 300, otp); // 5 mins
@@ -502,9 +601,11 @@ app.post(['/rbhlogin', '/rbhlogin/otp'], async (req, res) => {
       const tempToken = jwt.sign({ 
         user: username, 
         fullname, 
+        lineid,
         has_line_rbh, 
         has_moph_app, 
         has_moph_line,
+        sent_via_line_backup,
         cid,
         noMoph,
         ref,
